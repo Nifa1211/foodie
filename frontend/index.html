@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foodie Express</title>
+<style>
+  :root { --ink:#14202B; --paper:#F3F6F8; --chili:#D8432B; --turmeric:#F2B632; --leaf:#1F7A5C; --line:#D5DDE3; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { background:var(--ink); color:#fff; padding:20px 24px; display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:26px; letter-spacing:.5px; }
+  header h1 span { color:var(--turmeric); }
+  #pod { background:#223445; border:1px solid #35506a; border-radius:6px; padding:6px 12px; font-size:14px; }
+  #pod b { color:var(--turmeric); }
+  main { max-width:1000px; margin:24px auto; padding:0 16px; display:grid; grid-template-columns:1.4fr 1fr; gap:24px; }
+  @media (max-width:760px) { main { grid-template-columns:1fr; } }
+  h2 { font-size:18px; margin:0 0 12px; }
+  .item { display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .item small { color:#5b6b78; }
+  .qty button { width:32px; height:32px; border:1px solid var(--ink); background:#fff; font-size:18px; cursor:pointer; border-radius:4px; }
+  .qty button:focus-visible, .order-btn:focus-visible, input:focus-visible { outline:3px solid var(--turmeric); outline-offset:2px; }
+  .qty span { display:inline-block; width:28px; text-align:center; }
+  aside { background:#fff; border:1px solid var(--line); border-radius:8px; padding:18px; align-self:start; }
+  input { width:100%; padding:10px; border:1px solid var(--ink); border-radius:4px; font:inherit; margin-bottom:12px; }
+  .total { display:flex; justify-content:space-between; font-weight:600; margin:8px 0 14px; }
+  .order-btn { width:100%; padding:12px; border:0; border-radius:4px; background:var(--chili); color:#fff; font:600 16px inherit; cursor:pointer; }
+  .order-btn:disabled { background:#b8c2ca; cursor:not-allowed; }
+  #msg { margin-top:10px; font-size:14px; min-height:20px; }
+  .err { color:var(--chili); }
+  .orders { grid-column:1 / -1; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); }
+  th, td { text-align:left; padding:10px; border-bottom:1px solid var(--line); font-size:14px; }
+  .tag { padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; color:#fff; }
+  .PREPARING { background:#c78a00; } .OUT_FOR_DELIVERY { background:#2d6cdf; } .DELIVERED { background:var(--leaf); } .PAYMENT_FAILED { background:var(--chili); }
+  @media (prefers-reduced-motion: no-preference) { .tag { transition: background .3s; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Foodie <span>Express</span></h1>
+  <div id="pod">Order handled by pod: <b id="podName">none yet</b></div>
+</header>
+<main>
+  <section>
+    <h2>Menu</h2>
+    <div id="menu">Loading menu...</div>
+  </section>
+  <aside>
+    <h2>Your order</h2>
+    <input id="name" placeholder="Your name" autocomplete="name">
+    <div class="total"><span>Total</span><span id="total">Rs 0</span></div>
+    <button class="order-btn" id="go" disabled>Place order</button>
+    <div id="msg" role="status"></div>
+  </aside>
+  <section class="orders">
+    <h2>Recent orders</h2>
+    <table><thead><tr><th>ID</th><th>Customer</th><th>Total</th><th>Driver</th><th>Status</th><th>Pod</th></tr></thead>
+    <tbody id="orders"><tr><td colspan="6">No orders yet. Pick something from the menu.</td></tr></tbody></table>
+  </section>
+</main>
+<script>
+const cart = {}; let menu = [];
+const $ = id => document.getElementById(id);
+
+async function loadMenu() {
+  try {
+    menu = await (await fetch('/api/menu')).json();
+    $('menu').innerHTML = menu.map(m => `
+      <div class="item"><div>${m.name}<br><small>Rs ${m.price}</small></div>
+      <div class="qty"><button aria-label="Remove ${m.name}" onclick="chg(${m.id},-1)">-</button><span id="q${m.id}">0</span><button aria-label="Add ${m.name}" onclick="chg(${m.id},1)">+</button></div></div>`).join('');
+  } catch { $('menu').textContent = 'Could not load the menu. Check that restaurant-service is running.'; }
+}
+function chg(id, d) {
+  cart[id] = Math.max(0, (cart[id] || 0) + d);
+  $('q' + id).textContent = cart[id];
+  const total = menu.reduce((s, m) => s + m.price * (cart[m.id] || 0), 0);
+  $('total').textContent = 'Rs ' + total;
+  $('go').disabled = total === 0;
+}
+$('go').onclick = async () => {
+  const items = Object.entries(cart).filter(([, q]) => q > 0).map(([id, qty]) => ({ id: Number(id), qty }));
+  const customer = $('name').value.trim();
+  if (!customer) { $('msg').innerHTML = '<span class="err">Enter your name first.</span>'; return; }
+  $('go').disabled = true;
+  try {
+    const r = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer, items }) });
+    const o = await r.json();
+    if (!r.ok) throw new Error(o.error || 'Order failed');
+    $('podName').textContent = o.servedBy;
+    $('msg').textContent = o.paid ? `Order ${o.id} placed. ${o.driver} will deliver in about ${o.eta} min.` : 'Payment was declined.';
+    Object.keys(cart).forEach(k => { cart[k] = 0; $('q' + k).textContent = 0; });
+    $('total').textContent = 'Rs 0';
+    loadOrders();
+  } catch (e) { $('msg').innerHTML = `<span class="err">${e.message}</span>`; $('go').disabled = false; }
+};
+async function loadOrders() {
+  try {
+    const os = await (await fetch('/api/orders')).json();
+    if (!os.length) return;
+    $('orders').innerHTML = os.map(o => `<tr><td>${o.id}</td><td>${o.customer}</td><td>Rs ${o.total}</td><td>${o.driver || '-'}</td>
+      <td><span class="tag ${o.status}">${o.status.replace(/_/g, ' ')}</span></td><td>${o.servedBy}</td></tr>`).join('');
+  } catch {}
+}
+loadMenu(); loadOrders(); setInterval(loadOrders, 3000);
+</script>
+</body>
+</html>

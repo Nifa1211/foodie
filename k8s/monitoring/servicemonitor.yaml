@@ -1,0 +1,39 @@
+# Tells Prometheus (installed by scripts/monitoring.sh) to scrape every service labelled metrics=true
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: foodie-services
+  namespace: foodie
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      metrics: "true"
+  namespaceSelector:
+    matchNames: [foodie]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: foodie-alerts
+  namespace: foodie
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: foodie
+      rules:
+        - alert: OrderServiceHighCPU
+          expr: sum(rate(container_cpu_usage_seconds_total{namespace="foodie",pod=~"order-service.*"}[2m])) > 0.4
+          for: 1m
+          labels: {severity: warning}
+          annotations: {summary: "order-service is using a lot of CPU, expect autoscaling"}
+        - alert: FoodiePodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="foodie"}[5m]) > 2
+          labels: {severity: critical}
+          annotations: {summary: "A foodie pod is crash-looping"}

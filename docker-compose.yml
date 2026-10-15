@@ -1,0 +1,18 @@
+# Quick local run without Kubernetes:  docker compose up --build   ->  http://localhost:8080
+services:
+  redis:
+    image: redis:7-alpine
+  restaurant-service:
+    build: ./services/restaurant
+  payment-service:
+    build: ./services/payment
+  delivery-service:
+    build: ./services/delivery
+  order-service:
+    build: ./services/order
+    depends_on: [redis, restaurant-service, payment-service, delivery-service]
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on: [restaurant-service, order-service]
+    restart: on-failure
